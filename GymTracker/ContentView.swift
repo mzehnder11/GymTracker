@@ -20,15 +20,15 @@ struct Exercise: Identifiable, Codable, Hashable {
     var name: String
     var logs: [WorkoutLog]
     
-    var estimatedOneRepMax: Double? {
+    func estimatedOneRepMax(unit: SettingsStore.WeightUnit) -> Double? {
         guard let lastLog = logs.last else { return nil }
+        let weight = unit == .lbs ? lastLog.weight * 2.20462 : lastLog.weight
         if lastLog.reps == 1 {
-            return lastLog.weight
+            return weight
         }
-        return lastLog.weight * (1 + Double(lastLog.reps) / 30.0)
+        return weight * (1 + Double(lastLog.reps) / 30.0)
     }
     
-    // Progressive Overload Metriken
     var progressiveOverloadScore: Double? {
         guard logs.count >= 2 else { return nil }
         let sortedLogs = logs.sorted { $0.date < $1.date }
@@ -59,7 +59,6 @@ struct WorkoutLog: Identifiable, Codable, Hashable {
         weight * Double(reps)
     }
     
-    // Intensitätsscore für Progressive Overload
     var intensityScore: Double {
         weight * Double(reps)
     }
@@ -127,6 +126,20 @@ final class SettingsStore: ObservableObject {
             case .lbs: return "Pfund (lbs)"
             }
         }
+    }
+    
+    func convert(_ weight: Double, from: WeightUnit, to: WeightUnit) -> Double {
+        if from == to { return weight }
+        if from == .kg && to == .lbs {
+            return weight * 2.20462
+        } else {
+            return weight / 2.20462
+        }
+    }
+    
+    func formatWeight(_ weight: Double) -> String {
+        let converted = weightUnit == .lbs ? weight * 2.20462 : weight
+        return String(format: "%.1f", converted)
     }
     
     init() {
@@ -279,8 +292,6 @@ final class GymStore: ObservableObject {
         save()
     }
     
-    // MARK: - Persistence
-    
     private func save() {
         if let data = try? JSONEncoder().encode(exercises) {
             UserDefaults.standard.set(data, forKey: exercisesKey)
@@ -355,6 +366,7 @@ struct ContentView: View {
 struct ExercisesListView: View {
     
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @State private var showAddExercise = false
     
     var body: some View {
@@ -364,19 +376,20 @@ struct ExercisesListView: View {
                     NavigationLink {
                         ExerciseDetailView(exercise: exercise)
                             .environmentObject(store)
+                            .environmentObject(settings)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(exercise.name)
                                 .font(.headline)
                             
                             HStack(spacing: 12) {
-                                if let oneRM = exercise.estimatedOneRepMax {
-                                    Text("1RM: \(String(format: "%.1f", oneRM)) kg")
+                                if let oneRM = exercise.estimatedOneRepMax(unit: settings.weightUnit) {
+                                    Text("1RM: \(settings.formatWeight(oneRM)) \(settings.weightUnit.rawValue)")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
                                 
-                                if let progress = exercise.progressiveOverloadScore {
+                                if settings.showProgressIndicators, let progress = exercise.progressiveOverloadScore {
                                     HStack(spacing: 2) {
                                         Image(systemName: progress >= 0 ? "arrow.up.right" : "arrow.down.right")
                                             .font(.caption2)
@@ -461,6 +474,7 @@ struct ExerciseDetailView: View {
     
     let exercise: Exercise
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var showAddLog = false
@@ -479,40 +493,45 @@ struct ExerciseDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 
-                // Progressive Overload Highlight
-                if let ex = currentExercise, ex.logs.count >= 2 {
+                if settings.showProgressIndicators, let ex = currentExercise, ex.logs.count >= 2 {
                     ProgressiveOverloadCard(exercise: ex)
                 }
                 
-                // Statistiken
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Statistiken")
                         .font(.headline)
                     
                     HStack {
-                        StatCard(title: "Gesamt-Volumen", value: "\(String(format: "%.0f", totalVolume)) kg")
+                        StatCard(
+                            title: "Gesamt-Volumen",
+                            value: "\(settings.formatWeight(totalVolume)) \(settings.weightUnit.rawValue)"
+                        )
                         StatCard(title: "Trainings", value: "\(currentExercise?.logs.count ?? 0)")
                     }
                     
                     HStack {
-                        if let oneRM = currentExercise?.estimatedOneRepMax {
-                            StatCard(title: "Geschätztes 1RM", value: "\(String(format: "%.1f", oneRM)) kg")
+                        if let oneRM = currentExercise?.estimatedOneRepMax(unit: settings.weightUnit) {
+                            StatCard(
+                                title: "Geschätztes 1RM",
+                                value: "\(settings.formatWeight(oneRM)) \(settings.weightUnit.rawValue)"
+                            )
                         }
                         
                         if let avgIntensity = currentExercise?.averageIntensity {
-                            StatCard(title: "Ø Intensität", value: "\(String(format: "%.0f", avgIntensity)) kg")
+                            StatCard(
+                                title: "Ø Intensität",
+                                value: "\(settings.formatWeight(avgIntensity)) \(settings.weightUnit.rawValue)"
+                            )
                         }
                     }
                 }
                 
-                // Progressive Overload Chart
-                if let ex = currentExercise, ex.logs.count >= 2 {
+                if settings.showProgressIndicators, let ex = currentExercise, ex.logs.count >= 2 {
                     Text("Progressive Overload")
                         .font(.headline)
                     progressiveOverloadChart(for: ex)
                 }
                 
-                // Weitere Charts
                 if let ex = currentExercise, !ex.logs.isEmpty {
                     Text("Gewicht & Wiederholungen")
                         .font(.headline)
@@ -527,7 +546,6 @@ struct ExerciseDetailView: View {
                 
                 Divider()
                 
-                // Logs mit Vergleich
                 Text("Verlauf")
                     .font(.headline)
                 
@@ -548,6 +566,7 @@ struct ExerciseDetailView: View {
                                 store.deleteLog(exerciseId: exercise.id, logId: log.id)
                             }
                         )
+                        .environmentObject(settings)
                     }
                 }
             }
@@ -584,6 +603,7 @@ struct ExerciseDetailView: View {
             if let ex = currentExercise {
                 AddLogView(exercise: ex)
                     .environmentObject(store)
+                    .environmentObject(settings)
             }
         }
         .sheet(isPresented: $showEditExercise) {
@@ -596,18 +616,20 @@ struct ExerciseDetailView: View {
             if let ex = currentExercise {
                 EditLogView(exercise: ex, log: log)
                     .environmentObject(store)
+                    .environmentObject(settings)
             }
         }
     }
     
-    // MARK: - Charts
-    
     private func progressiveOverloadChart(for exercise: Exercise) -> some View {
         Chart {
             ForEach(exercise.logs) { log in
+                let displayWeight = settings.weightUnit == .lbs ? log.weight * 2.20462 : log.weight
+                let intensity = displayWeight * Double(log.reps)
+                
                 LineMark(
                     x: .value("Datum", log.date),
-                    y: .value("Intensität", log.intensityScore)
+                    y: .value("Intensität", intensity)
                 )
                 .foregroundStyle(.purple)
                 .symbol(Circle())
@@ -615,12 +637,12 @@ struct ExerciseDetailView: View {
                 
                 PointMark(
                     x: .value("Datum", log.date),
-                    y: .value("Intensität", log.intensityScore)
+                    y: .value("Intensität", intensity)
                 )
                 .foregroundStyle(.purple)
             }
         }
-        .chartYAxisLabel("Intensität (kg × reps)")
+        .chartYAxisLabel("Intensität (\(settings.weightUnit.rawValue) × reps)")
         .frame(height: 220)
         .padding(.vertical, 8)
         .background(Color.purple.opacity(0.05))
@@ -630,9 +652,11 @@ struct ExerciseDetailView: View {
     private func combinedWeightRepsChart(for exercise: Exercise) -> some View {
         Chart {
             ForEach(exercise.logs) { log in
+                let displayWeight = settings.weightUnit == .lbs ? log.weight * 2.20462 : log.weight
+                
                 LineMark(
                     x: .value("Datum", log.date),
-                    y: .value("Gewicht", log.weight)
+                    y: .value("Gewicht", displayWeight)
                 )
                 .foregroundStyle(.blue)
                 .symbol(Circle())
@@ -650,9 +674,11 @@ struct ExerciseDetailView: View {
     private func volumeChart(for exercise: Exercise) -> some View {
         Chart {
             ForEach(exercise.logs) { log in
+                let displayVolume = settings.weightUnit == .lbs ? log.volume * 2.20462 : log.volume
+                
                 BarMark(
                     x: .value("Datum", log.date),
-                    y: .value("Volumen", log.volume)
+                    y: .value("Volumen", displayVolume)
                 )
                 .foregroundStyle(.green)
             }
@@ -741,6 +767,7 @@ struct LogRowView: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     
+    @EnvironmentObject var settings: SettingsStore
     @State private var showOptions = false
     
     var changes: (weight: Double, reps: Int, volume: Double)? {
@@ -770,11 +797,11 @@ struct LogRowView: View {
             
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(String(format: "%.1f", log.weight)) kg × \(log.reps)")
+                    Text("\(settings.formatWeight(log.weight)) \(settings.weightUnit.rawValue) × \(log.reps)")
                         .font(.body)
                         .fontWeight(.medium)
                     
-                    Text("Volumen: \(String(format: "%.0f", log.volume)) kg")
+                    Text("Volumen: \(settings.formatWeight(log.volume)) \(settings.weightUnit.rawValue)")
                         .font(.caption)
                         .foregroundColor(.blue)
                 }
@@ -787,7 +814,7 @@ struct LogRowView: View {
                             HStack(spacing: 2) {
                                 Image(systemName: changes.weight > 0 ? "arrow.up" : "arrow.down")
                                     .font(.caption2)
-                                Text("\(String(format: "%.1f", abs(changes.weight))) kg")
+                                Text("\(settings.formatWeight(abs(changes.weight))) \(settings.weightUnit.rawValue)")
                                     .font(.caption)
                             }
                             .foregroundColor(changes.weight > 0 ? .green : .red)
@@ -807,7 +834,7 @@ struct LogRowView: View {
                             HStack(spacing: 2) {
                                 Image(systemName: changes.volume > 0 ? "arrow.up.right" : "arrow.down.right")
                                     .font(.caption2)
-                                Text("\(String(format: "%.0f", abs(changes.volume))) kg")
+                                Text("\(settings.formatWeight(abs(changes.volume))) \(settings.weightUnit.rawValue)")
                                     .font(.caption)
                                     .fontWeight(.semibold)
                             }
@@ -875,6 +902,7 @@ struct AddLogView: View {
     
     let exercise: Exercise
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var weight = ""
@@ -890,9 +918,9 @@ struct AddLogView: View {
                 if let last = lastLog {
                     Section("Letztes Training") {
                         HStack {
-                            Text("\(String(format: "%.1f", last.weight)) kg × \(last.reps)")
+                            Text("\(settings.formatWeight(last.weight)) \(settings.weightUnit.rawValue) × \(last.reps)")
                             Spacer()
-                            Text("Volumen: \(String(format: "%.0f", last.volume)) kg")
+                            Text("Volumen: \(settings.formatWeight(last.volume)) \(settings.weightUnit.rawValue)")
                                 .foregroundColor(.secondary)
                         }
                         .font(.callout)
@@ -900,7 +928,7 @@ struct AddLogView: View {
                 }
                 
                 Section("Neues Training") {
-                    TextField("Gewicht (kg)", text: $weight)
+                    TextField("Gewicht (\(settings.weightUnit.rawValue))", text: $weight)
                         .keyboardType(.decimalPad)
                     
                     TextField("Wiederholungen", text: $reps)
@@ -908,23 +936,26 @@ struct AddLogView: View {
                 }
                 
                 if let w = Double(weight), let r = Int(reps) {
+                    let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                    let volumeInKg = weightInKg * Double(r)
+                    
                     Section("Vorschau") {
                         HStack {
                             Text("Volumen:")
                             Spacer()
-                            Text("\(String(format: "%.0f", w * Double(r))) kg")
+                            Text("\(settings.formatWeight(volumeInKg)) \(settings.weightUnit.rawValue)")
                                 .fontWeight(.semibold)
                         }
                         
                         if let last = lastLog {
-                            let volumeChange = (w * Double(r)) - last.volume
+                            let volumeChange = volumeInKg - last.volume
                             HStack {
                                 Text("Veränderung:")
                                 Spacer()
                                 HStack(spacing: 4) {
                                     Image(systemName: volumeChange >= 0 ? "arrow.up.right" : "arrow.down.right")
                                         .font(.caption)
-                                    Text("\(String(format: "%.0f", abs(volumeChange))) kg")
+                                    Text("\(settings.formatWeight(abs(volumeChange))) \(settings.weightUnit.rawValue)")
                                 }
                                 .foregroundColor(volumeChange >= 0 ? .green : .red)
                                 .fontWeight(.semibold)
@@ -939,7 +970,8 @@ struct AddLogView: View {
                     Button("Speichern") {
                         if let w = Double(weight),
                            let r = Int(reps) {
-                            store.addLog(to: exercise, weight: w, reps: r)
+                            let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                            store.addLog(to: exercise, weight: weightInKg, reps: r)
                             dismiss()
                         }
                     }
@@ -963,6 +995,7 @@ struct EditLogView: View {
     let exercise: Exercise
     let log: WorkoutLog
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var weight = ""
@@ -971,18 +1004,21 @@ struct EditLogView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField("Gewicht (kg)", text: $weight)
+                TextField("Gewicht (\(settings.weightUnit.rawValue))", text: $weight)
                     .keyboardType(.decimalPad)
                 
                 TextField("Wiederholungen", text: $reps)
                     .keyboardType(.numberPad)
                 
                 if let w = Double(weight), let r = Int(reps) {
+                    let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                    let volumeInKg = weightInKg * Double(r)
+                    
                     Section {
                         HStack {
                             Text("Volumen:")
                             Spacer()
-                            Text("\(String(format: "%.0f", w * Double(r))) kg")
+                            Text("\(settings.formatWeight(volumeInKg)) \(settings.weightUnit.rawValue)")
                                 .fontWeight(.semibold)
                         }
                     }
@@ -990,7 +1026,8 @@ struct EditLogView: View {
             }
             .navigationTitle("Log bearbeiten")
             .onAppear {
-                weight = String(log.weight)
+                let displayWeight = settings.weightUnit == .lbs ? log.weight * 2.20462 : log.weight
+                weight = String(format: "%.1f", displayWeight)
                 reps = String(log.reps)
             }
             .toolbar {
@@ -998,7 +1035,8 @@ struct EditLogView: View {
                     Button("Speichern") {
                         if let w = Double(weight),
                            let r = Int(reps) {
-                            store.updateLog(exerciseId: exercise.id, log: log, weight: w, reps: r)
+                            let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                            store.updateLog(exerciseId: exercise.id, log: log, weight: weightInKg, reps: r)
                             dismiss()
                         }
                     }
@@ -1020,6 +1058,7 @@ struct EditLogView: View {
 struct SessionsListView: View {
     
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @State private var showAddSession = false
     
     var body: some View {
@@ -1029,6 +1068,7 @@ struct SessionsListView: View {
                     NavigationLink {
                         SessionDetailView(session: session)
                             .environmentObject(store)
+                            .environmentObject(settings)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(session.name)
@@ -1036,7 +1076,7 @@ struct SessionsListView: View {
                             Text(session.date.formattedString())
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            Text("Volumen: \(String(format: "%.0f", session.totalVolume(from: store))) kg")
+                            Text("Volumen: \(settings.formatWeight(session.totalVolume(from: store))) \(settings.weightUnit.rawValue)")
                                 .font(.caption)
                                 .foregroundColor(.blue)
                         }
@@ -1140,6 +1180,7 @@ struct SessionDetailView: View {
     
     let session: TrainingSession
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var showAddLog = false
@@ -1183,7 +1224,7 @@ struct SessionDetailView: View {
                         
                         StatCard(
                             title: "Gesamt-Volumen",
-                            value: "\(String(format: "%.0f", sess.totalVolume(from: store))) kg"
+                            value: "\(settings.formatWeight(sess.totalVolume(from: store))) \(settings.weightUnit.rawValue)"
                         )
                     }
                 }
@@ -1228,9 +1269,9 @@ struct SessionDetailView: View {
                         let logs = exercise.logs.filter { $0.sessionId == session.id }
                         ForEach(logs) { log in
                             HStack {
-                                Text("\(String(format: "%.1f", log.weight)) kg × \(log.reps)")
+                                Text("\(settings.formatWeight(log.weight)) \(settings.weightUnit.rawValue) × \(log.reps)")
                                 Spacer()
-                                Text("\(String(format: "%.0f", log.volume)) kg")
+                                Text("\(settings.formatWeight(log.volume)) \(settings.weightUnit.rawValue)")
                                     .foregroundColor(.blue)
                             }
                             .padding(.horizontal)
@@ -1264,6 +1305,7 @@ struct SessionDetailView: View {
             if let exercise = selectedExercise {
                 AddLogToSessionView(exercise: exercise, sessionId: session.id)
                     .environmentObject(store)
+                    .environmentObject(settings)
             }
         }
         .sheet(isPresented: $showEditSession) {
@@ -1353,6 +1395,7 @@ struct AddLogToSessionView: View {
     let exercise: Exercise
     let sessionId: UUID
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var weight = ""
@@ -1367,7 +1410,7 @@ struct AddLogToSessionView: View {
                 }
                 
                 Section("Training eintragen") {
-                    TextField("Gewicht (kg)", text: $weight)
+                    TextField("Gewicht (\(settings.weightUnit.rawValue))", text: $weight)
                         .keyboardType(.decimalPad)
                     
                     TextField("Wiederholungen", text: $reps)
@@ -1375,11 +1418,14 @@ struct AddLogToSessionView: View {
                 }
                 
                 if let w = Double(weight), let r = Int(reps) {
+                    let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                    let volumeInKg = weightInKg * Double(r)
+                    
                     Section("Vorschau") {
                         HStack {
                             Text("Volumen:")
                             Spacer()
-                            Text("\(String(format: "%.0f", w * Double(r))) kg")
+                            Text("\(settings.formatWeight(volumeInKg)) \(settings.weightUnit.rawValue)")
                                 .fontWeight(.semibold)
                         }
                     }
@@ -1391,7 +1437,8 @@ struct AddLogToSessionView: View {
                     Button("Speichern") {
                         if let w = Double(weight),
                            let r = Int(reps) {
-                            store.addLog(to: exercise, weight: w, reps: r, sessionId: sessionId)
+                            let weightInKg = settings.weightUnit == .lbs ? w / 2.20462 : w
+                            store.addLog(to: exercise, weight: weightInKg, reps: r, sessionId: sessionId)
                             dismiss()
                         }
                     }
@@ -1413,6 +1460,7 @@ struct AddLogToSessionView: View {
 struct PlansListView: View {
     
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @State private var showAddPlan = false
     
     var body: some View {
@@ -1422,6 +1470,7 @@ struct PlansListView: View {
                     NavigationLink {
                         PlanDetailView(plan: plan)
                             .environmentObject(store)
+                            .environmentObject(settings)
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(plan.name)
@@ -1537,6 +1586,7 @@ struct PlanDetailView: View {
     
     let plan: TrainingPlan
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     
     @State private var showStartSession = false
@@ -1574,8 +1624,8 @@ struct PlanDetailView: View {
                         HStack {
                             Text(exercise.name)
                             Spacer()
-                            if let oneRM = exercise.estimatedOneRepMax {
-                                Text("1RM: \(String(format: "%.1f", oneRM)) kg")
+                            if let oneRM = exercise.estimatedOneRepMax(unit: settings.weightUnit) {
+                                Text("1RM: \(settings.formatWeight(oneRM)) \(settings.weightUnit.rawValue)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -1687,14 +1737,6 @@ struct StartSessionFromPlanView: View {
     }
 }
 
-// MARK: - Preview
-
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
-}
-
 // MARK: - SETTINGS VIEW
 
 struct SettingsView: View {
@@ -1707,7 +1749,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Darstellung
                 Section("Darstellung") {
                     Picker("Design", selection: $settings.appearanceMode) {
                         Text("Automatisch").tag(nil as ColorScheme?)
@@ -1717,7 +1758,6 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
                 
-                // Einheiten
                 Section("Einheiten") {
                     Picker("Gewichtseinheit", selection: $settings.weightUnit) {
                         ForEach(SettingsStore.WeightUnit.allCases, id: \.self) { unit in
@@ -1726,18 +1766,15 @@ struct SettingsView: View {
                     }
                 }
                 
-                // Anzeige
                 Section("Anzeige") {
                     Toggle("Progressive Overload anzeigen", isOn: $settings.showProgressIndicators)
                         .toggleStyle(SwitchToggleStyle(tint: .blue))
                 }
                 
-                // Training
                 Section("Training") {
                     Stepper("Pause: \(settings.defaultRestTimer) Sek.", value: $settings.defaultRestTimer, in: 30...300, step: 15)
                 }
                 
-                // Feedback
                 Section("Feedback") {
                     Toggle("Töne", isOn: $settings.soundEnabled)
                         .toggleStyle(SwitchToggleStyle(tint: .blue))
@@ -1746,7 +1783,6 @@ struct SettingsView: View {
                         .toggleStyle(SwitchToggleStyle(tint: .blue))
                 }
                 
-                // Statistiken
                 Section("Statistiken") {
                     HStack {
                         Text("Übungen")
@@ -1777,7 +1813,6 @@ struct SettingsView: View {
                     }
                 }
                 
-                // Daten
                 Section("Daten") {
                     Button {
                         showExportSheet = true
@@ -1797,9 +1832,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-                
-                // Info
-         
             }
             .navigationTitle("Einstellungen")
             .alert("Alle Daten löschen?", isPresented: $showResetAlert) {
@@ -1813,6 +1845,7 @@ struct SettingsView: View {
             .sheet(isPresented: $showExportSheet) {
                 ExportDataView()
                     .environmentObject(store)
+                    .environmentObject(settings)
             }
         }
     }
@@ -1832,6 +1865,7 @@ struct SettingsView: View {
 struct ExportDataView: View {
     
     @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
     @Environment(\.dismiss) private var dismiss
     @State private var exportText = ""
     @State private var showCopiedAlert = false
@@ -1925,5 +1959,13 @@ struct ExportDataView: View {
            let jsonString = String(data: jsonData, encoding: .utf8) {
             exportText = jsonString
         }
+    }
+}
+
+// MARK: - Preview
+
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        ContentView()
     }
 }
