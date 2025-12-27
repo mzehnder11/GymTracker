@@ -6,7 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		E32C19CA2F00218200B51C4E /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = E32C19C82F00217C00B51C4E /* README.md */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
+		E32C19C82F00217C00B51C4E /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		E397241F2EFDE49200F73245 /* GymTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GymTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -32,6 +37,7 @@
 		E39724162EFDE49200F73245 = {
 			isa = PBXGroup;
 			children = (
+				E32C19C82F00217C00B51C4E /* README.md */,
 				E39724212EFDE49200F73245 /* GymTracker */,
 				E39724202EFDE49200F73245 /* Products */,
 			);
@@ -109,6 +115,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E32C19CA2F00218200B51C4E /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

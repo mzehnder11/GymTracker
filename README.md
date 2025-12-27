@@ -58,24 +58,3 @@ Die App berechnet den Fortschritt dynamisch:
 1. Xcode 15.0+ oder neuer.
 2. iOS 17.0+ (aufgrund der Verwendung von Swift Charts und modernen NavigationStacks).
 3. Einfach die `.swift` Dateien in ein neues Xcode-Projekt (SwiftUI App) kopieren.
-
----
-
-### Geplante Erweiterungen (To-Do)
-
-* [ ] Integration von iCloud (CloudKit) zur Synchronisation.
-* [ ] Export-Funktion für Trainingsdaten (CSV/JSON).
-* [ ] Timer-Funktion für Satzpausen.
-* [ ] Unterstützung für verschiedene Einheiten (kg/lbs).
-
----
-
-**Entwickelt von:** Malik Zehnder
-
-**Datum:** Dezember 2025
-
----
-
-### Wie geht es weiter?
-
-Möchtest du, dass ich die Speicherlogik von `UserDefaults` auf **SwiftData** oder **CoreData** umstelle, um größere Datenmengen effizienter zu verwalten?
