@@ -90,6 +90,76 @@ struct TrainingPlan: Identifiable, Codable, Hashable {
     var notes: String
 }
 
+// MARK: - SETTINGS STORE
+
+final class SettingsStore: ObservableObject {
+    @Published var appearanceMode: ColorScheme? {
+        didSet { saveAppearance() }
+    }
+    
+    @Published var weightUnit: WeightUnit = .kg {
+        didSet { UserDefaults.standard.set(weightUnit.rawValue, forKey: "weightUnit") }
+    }
+    
+    @Published var showProgressIndicators: Bool = true {
+        didSet { UserDefaults.standard.set(showProgressIndicators, forKey: "showProgressIndicators") }
+    }
+    
+    @Published var defaultRestTimer: Int = 90 {
+        didSet { UserDefaults.standard.set(defaultRestTimer, forKey: "defaultRestTimer") }
+    }
+    
+    @Published var soundEnabled: Bool = true {
+        didSet { UserDefaults.standard.set(soundEnabled, forKey: "soundEnabled") }
+    }
+    
+    @Published var hapticFeedback: Bool = true {
+        didSet { UserDefaults.standard.set(hapticFeedback, forKey: "hapticFeedback") }
+    }
+    
+    enum WeightUnit: String, Codable, CaseIterable {
+        case kg = "kg"
+        case lbs = "lbs"
+        
+        var name: String {
+            switch self {
+            case .kg: return "Kilogramm (kg)"
+            case .lbs: return "Pfund (lbs)"
+            }
+        }
+    }
+    
+    init() {
+        loadAppearance()
+        
+        if let unit = UserDefaults.standard.string(forKey: "weightUnit"),
+           let weightUnit = WeightUnit(rawValue: unit) {
+            self.weightUnit = weightUnit
+        }
+        
+        self.showProgressIndicators = UserDefaults.standard.object(forKey: "showProgressIndicators") as? Bool ?? true
+        self.defaultRestTimer = UserDefaults.standard.object(forKey: "defaultRestTimer") as? Int ?? 90
+        self.soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
+        self.hapticFeedback = UserDefaults.standard.object(forKey: "hapticFeedback") as? Bool ?? true
+    }
+    
+    private func saveAppearance() {
+        if let mode = appearanceMode {
+            UserDefaults.standard.set(mode == .dark ? "dark" : "light", forKey: "appearanceMode")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "appearanceMode")
+        }
+    }
+    
+    private func loadAppearance() {
+        if let saved = UserDefaults.standard.string(forKey: "appearanceMode") {
+            appearanceMode = saved == "dark" ? .dark : .light
+        } else {
+            appearanceMode = nil
+        }
+    }
+}
+
 // MARK: - STORE (Persistence)
 
 final class GymStore: ObservableObject {
@@ -244,27 +314,39 @@ final class GymStore: ObservableObject {
 struct ContentView: View {
     
     @StateObject private var store = GymStore()
+    @StateObject private var settings = SettingsStore()
     
     var body: some View {
         TabView {
             ExercisesListView()
                 .environmentObject(store)
+                .environmentObject(settings)
                 .tabItem {
                     Label("Übungen", systemImage: "dumbbell")
                 }
             
             SessionsListView()
                 .environmentObject(store)
+                .environmentObject(settings)
                 .tabItem {
                     Label("Sessions", systemImage: "calendar")
                 }
             
             PlansListView()
                 .environmentObject(store)
+                .environmentObject(settings)
                 .tabItem {
                     Label("Pläne", systemImage: "list.bullet.clipboard")
                 }
+            
+            SettingsView()
+                .environmentObject(store)
+                .environmentObject(settings)
+                .tabItem {
+                    Label("Einstellungen", systemImage: "gearshape")
+                }
         }
+        .preferredColorScheme(settings.appearanceMode)
     }
 }
 
@@ -1610,5 +1692,238 @@ struct StartSessionFromPlanView: View {
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
+    }
+}
+
+// MARK: - SETTINGS VIEW
+
+struct SettingsView: View {
+    
+    @EnvironmentObject var store: GymStore
+    @EnvironmentObject var settings: SettingsStore
+    @State private var showResetAlert = false
+    @State private var showExportSheet = false
+    
+    var body: some View {
+        NavigationStack {
+            List {
+                // Darstellung
+                Section("Darstellung") {
+                    Picker("Design", selection: $settings.appearanceMode) {
+                        Text("Automatisch").tag(nil as ColorScheme?)
+                        Text("Hell").tag(ColorScheme.light as ColorScheme?)
+                        Text("Dunkel").tag(ColorScheme.dark as ColorScheme?)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                // Einheiten
+                Section("Einheiten") {
+                    Picker("Gewichtseinheit", selection: $settings.weightUnit) {
+                        ForEach(SettingsStore.WeightUnit.allCases, id: \.self) { unit in
+                            Text(unit.name).tag(unit)
+                        }
+                    }
+                }
+                
+                // Anzeige
+                Section("Anzeige") {
+                    Toggle("Progressive Overload anzeigen", isOn: $settings.showProgressIndicators)
+                        .toggleStyle(SwitchToggleStyle(tint: .blue))
+                }
+                
+                // Training
+                Section("Training") {
+                    Stepper("Pause: \(settings.defaultRestTimer) Sek.", value: $settings.defaultRestTimer, in: 30...300, step: 15)
+                }
+                
+                // Feedback
+                Section("Feedback") {
+                    Toggle("Töne", isOn: $settings.soundEnabled)
+                        .toggleStyle(SwitchToggleStyle(tint: .blue))
+                    
+                    Toggle("Haptisches Feedback", isOn: $settings.hapticFeedback)
+                        .toggleStyle(SwitchToggleStyle(tint: .blue))
+                }
+                
+                // Statistiken
+                Section("Statistiken") {
+                    HStack {
+                        Text("Übungen")
+                        Spacer()
+                        Text("\(store.exercises.count)")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Sessions")
+                        Spacer()
+                        Text("\(store.sessions.count)")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Trainingspläne")
+                        Spacer()
+                        Text("\(store.plans.count)")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Gesamte Logs")
+                        Spacer()
+                        Text("\(store.exercises.reduce(0) { $0 + $1.logs.count })")
+                            .foregroundColor(.secondary)
+                    }
+                }
+                
+                // Daten
+                Section("Daten") {
+                    Button {
+                        showExportSheet = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "square.and.arrow.up")
+                            Text("Daten exportieren")
+                        }
+                    }
+                    
+                    Button(role: .destructive) {
+                        showResetAlert = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash")
+                            Text("Alle Daten löschen")
+                        }
+                    }
+                }
+                
+                // Info
+         
+            }
+            .navigationTitle("Einstellungen")
+            .alert("Alle Daten löschen?", isPresented: $showResetAlert) {
+                Button("Abbrechen", role: .cancel) {}
+                Button("Löschen", role: .destructive) {
+                    resetAllData()
+                }
+            } message: {
+                Text("Diese Aktion kann nicht rückgängig gemacht werden. Alle Übungen, Sessions und Pläne werden gelöscht.")
+            }
+            .sheet(isPresented: $showExportSheet) {
+                ExportDataView()
+                    .environmentObject(store)
+            }
+        }
+    }
+    
+    private func resetAllData() {
+        store.exercises.removeAll()
+        store.sessions.removeAll()
+        store.plans.removeAll()
+        UserDefaults.standard.removeObject(forKey: "gym_data")
+        UserDefaults.standard.removeObject(forKey: "gym_sessions")
+        UserDefaults.standard.removeObject(forKey: "gym_plans")
+    }
+}
+
+// MARK: - EXPORT DATA VIEW
+
+struct ExportDataView: View {
+    
+    @EnvironmentObject var store: GymStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var exportText = ""
+    @State private var showCopiedAlert = false
+    
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Text("Daten exportieren")
+                    .font(.headline)
+                    .padding(.top)
+                
+                Text("Kopiere den folgenden Text und speichere ihn sicher. Du kannst ihn später verwenden, um deine Daten wiederherzustellen.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+                
+                ScrollView {
+                    Text(exportText)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                }
+                .padding()
+                
+                Button {
+                    UIPasteboard.general.string = exportText
+                    showCopiedAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "doc.on.doc")
+                        Text("In Zwischenablage kopieren")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .padding(.horizontal)
+                .padding(.bottom)
+            }
+            .navigationTitle("Export")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Fertig") {
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                generateExportData()
+            }
+            .alert("Kopiert!", isPresented: $showCopiedAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Die Daten wurden in die Zwischenablage kopiert.")
+            }
+        }
+    }
+    
+    struct AnyEncodable: Encodable {
+        private let _encode: (Encoder) throws -> Void
+        init(_ wrapped: Encodable) {
+            self._encode = wrapped.encode
+        }
+        func encode(to encoder: Encoder) throws { try _encode(encoder) }
+    }
+    
+    private func generateExportData() {
+        let encodeBase64: (Encodable) -> String = { value in
+            let encoder = JSONEncoder()
+            if let data = try? encoder.encode(AnyEncodable(value)),
+               let base64 = Optional(data.base64EncodedString()) {
+                return base64
+            }
+            return ""
+        }
+        
+        let data: [String: Any] = [
+            "exercises": encodeBase64(store.exercises),
+            "sessions": encodeBase64(store.sessions),
+            "plans": encodeBase64(store.plans),
+            "version": "1.0"
+        ]
+        
+        if let jsonData = try? JSONSerialization.data(withJSONObject: data, options: .prettyPrinted),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            exportText = jsonString
+        }
     }
 }
