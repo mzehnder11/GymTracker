@@ -169,9 +169,10 @@ final class GymStore: ObservableObject {
         save()
     }
     
-    func updateSession(_ session: TrainingSession, name: String, notes: String) {
+    func updateSession(_ session: TrainingSession, name: String, exerciseIds: [UUID], notes: String) {
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions[index].name = name
+        sessions[index].exerciseIds = exerciseIds
         sessions[index].notes = notes
         save()
     }
@@ -452,11 +453,19 @@ struct ExerciseDetailView: View {
                     let sortedLogs = ex.logs.sorted(by: { $0.date > $1.date })
                     ForEach(Array(sortedLogs.enumerated()), id: \.element.id) { index, log in
                         let previousLog = index < sortedLogs.count - 1 ? sortedLogs[index + 1] : nil
-                        LogRowView(log: log, previousLog: previousLog, onTap: {
-                            logToEdit = log
-                        }, onDelete: {
-                            store.deleteLog(exerciseId: exercise.id, logId: log.id)
-                        })
+                        LogRowView(
+                            log: log,
+                            previousLog: previousLog,
+                            onTap: {
+                                logToEdit = log
+                            },
+                            onEdit: {
+                                logToEdit = log
+                            },
+                            onDelete: {
+                                store.deleteLog(exerciseId: exercise.id, logId: log.id)
+                            }
+                        )
                     }
                 }
             }
@@ -473,21 +482,19 @@ struct ExerciseDetailView: View {
             }
             
             ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button {
-                        showEditExercise = true
-                    } label: {
-                        Label("Bearbeiten", systemImage: "pencil")
-                    }
-                    
-                    Button(role: .destructive) {
-                        store.deleteExercise(exercise)
-                        dismiss()
-                    } label: {
-                        Label("Übung löschen", systemImage: "trash")
-                    }
+                Button {
+                    showEditExercise = true
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Bearbeiten", systemImage: "pencil")
+                }
+            }
+            
+            ToolbarItem(placement: .secondaryAction) {
+                Button(role: .destructive) {
+                    store.deleteExercise(exercise)
+                    dismiss()
+                } label: {
+                    Label("Löschen", systemImage: "trash")
                 }
             }
         }
@@ -649,7 +656,10 @@ struct LogRowView: View {
     let log: WorkoutLog
     let previousLog: WorkoutLog?
     let onTap: () -> Void
+    let onEdit: () -> Void
     let onDelete: () -> Void
+    
+    @State private var showOptions = false
     
     var changes: (weight: Double, reps: Int, volume: Double)? {
         guard let prev = previousLog else { return nil }
@@ -667,6 +677,13 @@ struct LogRowView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 Spacer()
+                
+                Button {
+                    showOptions = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .foregroundColor(.blue)
+                }
             }
             
             HStack(alignment: .top) {
@@ -720,15 +737,30 @@ struct LogRowView: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-        .onTapGesture {
-            onTap()
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 onDelete()
             } label: {
                 Label("Löschen", systemImage: "trash")
             }
+            
+            Button {
+                onEdit()
+            } label: {
+                Label("Bearbeiten", systemImage: "pencil")
+            }
+            .tint(.blue)
+        }
+        .confirmationDialog("Eintrag bearbeiten", isPresented: $showOptions) {
+            Button("Bearbeiten") {
+                onEdit()
+            }
+            
+            Button("Löschen", role: .destructive) {
+                onDelete()
+            }
+            
+            Button("Abbrechen", role: .cancel) {}
         }
     }
 }
@@ -1029,7 +1061,7 @@ struct SessionDetailView: View {
     @Environment(\.dismiss) private var dismiss
     
     @State private var showAddLog = false
-    @State private var selectedExercise: Exercise?
+    @State private var selectedExerciseId: UUID?
     @State private var showEditSession = false
     
     var currentSession: TrainingSession? {
@@ -1039,6 +1071,11 @@ struct SessionDetailView: View {
     var sessionExercises: [Exercise] {
         guard let sess = currentSession else { return [] }
         return store.exercises.filter { sess.exerciseIds.contains($0.id) }
+    }
+    
+    var selectedExercise: Exercise? {
+        guard let id = selectedExerciseId else { return nil }
+        return store.exercises.first { $0.id == id }
     }
     
     var body: some View {
@@ -1075,46 +1112,48 @@ struct SessionDetailView: View {
                     .font(.headline)
                 
                 ForEach(sessionExercises) { exercise in
-                    Button {
-                        selectedExercise = exercise
-                        showAddLog = true
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(exercise.name)
-                                    .font(.body)
-                                    .foregroundColor(.primary)
-                                
-                                let sessionLogs = exercise.logs.filter { $0.sessionId == session.id }
-                                if !sessionLogs.isEmpty {
-                                    Text("\(sessionLogs.count) Sätze")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text("Noch keine Sätze")
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button {
+                            selectedExerciseId = exercise.id
+                            showAddLog = true
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(exercise.name)
+                                        .font(.body)
+                                        .foregroundColor(.primary)
+                                    
+                                    let sessionLogs = exercise.logs.filter { $0.sessionId == session.id }
+                                    if !sessionLogs.isEmpty {
+                                        Text("\(sessionLogs.count) Sätze")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    } else {
+                                        Text("Noch keine Sätze")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
                                 }
+                                Spacer()
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(.blue)
                             }
-                            Spacer()
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.blue)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
                         }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
-                    }
-                    
-                    let logs = exercise.logs.filter { $0.sessionId == session.id }
-                    ForEach(logs) { log in
-                        HStack {
-                            Text("\(String(format: "%.1f", log.weight)) kg × \(log.reps)")
-                            Spacer()
-                            Text("\(String(format: "%.0f", log.volume)) kg")
-                                .foregroundColor(.blue)
+                        
+                        let logs = exercise.logs.filter { $0.sessionId == session.id }
+                        ForEach(logs) { log in
+                            HStack {
+                                Text("\(String(format: "%.1f", log.weight)) kg × \(log.reps)")
+                                Spacer()
+                                Text("\(String(format: "%.0f", log.volume)) kg")
+                                    .foregroundColor(.blue)
+                            }
+                            .padding(.horizontal)
+                            .font(.caption)
                         }
-                        .padding(.horizontal)
-                        .font(.caption)
                     }
                 }
             }
@@ -1122,21 +1161,21 @@ struct SessionDetailView: View {
         }
         .navigationTitle(currentSession?.name ?? "")
         .toolbar {
-            Menu {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     showEditSession = true
                 } label: {
                     Label("Bearbeiten", systemImage: "pencil")
                 }
-                
+            }
+            
+            ToolbarItem(placement: .secondaryAction) {
                 Button(role: .destructive) {
                     store.deleteSession(session)
                     dismiss()
                 } label: {
-                    Label("Session löschen", systemImage: "trash")
+                    Label("Löschen", systemImage: "trash")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
         }
         .sheet(isPresented: $showAddLog) {
@@ -1164,12 +1203,35 @@ struct EditSessionView: View {
     
     @State private var name = ""
     @State private var notes = ""
+    @State private var selectedExerciseIds: Set<UUID> = []
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("Session-Name") {
                     TextField("Name", text: $name)
+                }
+                
+                Section("Übungen auswählen") {
+                    ForEach(store.exercises) { exercise in
+                        Button {
+                            if selectedExerciseIds.contains(exercise.id) {
+                                selectedExerciseIds.remove(exercise.id)
+                            } else {
+                                selectedExerciseIds.insert(exercise.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(exercise.name)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedExerciseIds.contains(exercise.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 Section("Notizen") {
@@ -1181,14 +1243,15 @@ struct EditSessionView: View {
             .onAppear {
                 name = session.name
                 notes = session.notes
+                selectedExerciseIds = Set(session.exerciseIds)
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Speichern") {
-                        store.updateSession(session, name: name, notes: notes)
+                        store.updateSession(session, name: name, exerciseIds: Array(selectedExerciseIds), notes: notes)
                         dismiss()
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(name.isEmpty || selectedExerciseIds.isEmpty)
                 }
                 
                 ToolbarItem(placement: .cancellationAction) {
@@ -1221,14 +1284,16 @@ struct AddLogToSessionView: View {
                         .font(.headline)
                 }
                 
-                TextField("Gewicht (kg)", text: $weight)
-                    .keyboardType(.decimalPad)
-                
-                TextField("Wiederholungen", text: $reps)
-                    .keyboardType(.numberPad)
+                Section("Training eintragen") {
+                    TextField("Gewicht (kg)", text: $weight)
+                        .keyboardType(.decimalPad)
+                    
+                    TextField("Wiederholungen", text: $reps)
+                        .keyboardType(.numberPad)
+                }
                 
                 if let w = Double(weight), let r = Int(reps) {
-                    Section {
+                    Section("Vorschau") {
                         HStack {
                             Text("Volumen:")
                             Spacer()
@@ -1458,21 +1523,21 @@ struct PlanDetailView: View {
         }
         .navigationTitle(currentPlan?.name ?? "")
         .toolbar {
-            Menu {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     showEditPlan = true
                 } label: {
                     Label("Bearbeiten", systemImage: "pencil")
                 }
-                
+            }
+            
+            ToolbarItem(placement: .secondaryAction) {
                 Button(role: .destructive) {
                     store.deletePlan(plan)
                     dismiss()
                 } label: {
-                    Label("Plan löschen", systemImage: "trash")
+                    Label("Löschen", systemImage: "trash")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
         }
         .sheet(isPresented: $showStartSession) {
