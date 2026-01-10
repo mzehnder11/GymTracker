@@ -356,11 +356,20 @@ struct ExercisesListView: View {
     
     @EnvironmentObject var store: GymStore
     @State private var showAddExercise = false
+    @State private var searchText = ""
+    
+    var filteredExercises: [Exercise] {
+        if searchText.isEmpty {
+            return store.exercises
+        } else {
+            return store.exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
     
     var body: some View {
         NavigationStack {
             List {
-                ForEach(store.exercises) { exercise in
+                ForEach(filteredExercises) { exercise in
                     NavigationLink {
                         ExerciseDetailView(exercise: exercise)
                             .environmentObject(store)
@@ -407,6 +416,7 @@ struct ExercisesListView: View {
                 AddExerciseView()
                     .environmentObject(store)
             }
+            .searchable(text: $searchText, prompt: "Übung suchen")
         }
     }
 }
@@ -1075,6 +1085,15 @@ struct AddSessionView: View {
     @State private var name = ""
     @State private var notes = ""
     @State private var selectedExerciseIds: Set<UUID> = []
+    @State private var searchText = ""
+    
+    var filteredExercises: [Exercise] {
+        if searchText.isEmpty {
+            return store.exercises
+        } else {
+            return store.exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -1084,7 +1103,7 @@ struct AddSessionView: View {
                 }
                 
                 Section("Übungen auswählen") {
-                    ForEach(store.exercises) { exercise in
+                    ForEach(filteredExercises) { exercise in
                         Button {
                             if selectedExerciseIds.contains(exercise.id) {
                                 selectedExerciseIds.remove(exercise.id)
@@ -1130,6 +1149,7 @@ struct AddSessionView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "Übung suchen")
         }
     }
 }
@@ -1286,6 +1306,15 @@ struct EditSessionView: View {
     @State private var name = ""
     @State private var notes = ""
     @State private var selectedExerciseIds: Set<UUID> = []
+    @State private var searchText = ""
+    
+    var filteredExercises: [Exercise] {
+        if searchText.isEmpty {
+            return store.exercises
+        } else {
+            return store.exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -1295,7 +1324,7 @@ struct EditSessionView: View {
                 }
                 
                 Section("Übungen auswählen") {
-                    ForEach(store.exercises) { exercise in
+                    ForEach(filteredExercises) { exercise in
                         Button {
                             if selectedExerciseIds.contains(exercise.id) {
                                 selectedExerciseIds.remove(exercise.id)
@@ -1342,6 +1371,7 @@ struct EditSessionView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "Übung suchen")
         }
     }
 }
@@ -1541,6 +1571,16 @@ struct AddPlanView: View {
         _selectedExerciseIds = State(initialValue: Set(planToEdit?.exerciseIds ?? []))
     }
     
+    @State private var searchText = ""
+    
+    var filteredExercises: [Exercise] {
+        if searchText.isEmpty {
+            return store.exercises
+        } else {
+            return store.exercises.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+    }
+    
     var body: some View {
         NavigationStack {
             Form {
@@ -1549,7 +1589,7 @@ struct AddPlanView: View {
                 }
                 
                 Section("Übungen auswählen") {
-                    ForEach(store.exercises) { exercise in
+                    ForEach(filteredExercises) { exercise in
                         Button {
                             if selectedExerciseIds.contains(exercise.id) {
                                 selectedExerciseIds.remove(exercise.id)
@@ -1595,6 +1635,7 @@ struct AddPlanView: View {
                     }
                 }
             }
+            .searchable(text: $searchText, prompt: "Übung suchen")
         }
     }
 }
